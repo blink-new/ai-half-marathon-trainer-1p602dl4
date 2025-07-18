@@ -67,12 +67,15 @@ export function NutritionPlanner({ consultationData, currentWeek }: NutritionPla
     setIsGenerating(true)
     
     try {
+      // Always start with default plan to ensure UI works
+      generateDefaultPlan()
+      
       const prompt = `Create a personalized daily nutrition plan for a half-marathon runner.
 
 Runner Profile:
-- Goal: ${consultationData.goal_type}
-- Training days per week: ${consultationData.training_days_per_week}
-- Current weekly mileage: ${consultationData.current_weekly_mileage}
+- Goal: ${consultationData.goal_type || 'Complete half-marathon'}
+- Training days per week: ${consultationData.training_days_per_week || 4}
+- Current weekly mileage: ${consultationData.current_weekly_mileage || 15}
 - Dietary restrictions: ${consultationData.dietary_restrictions || 'None'}
 - Current training week: ${currentWeek}
 
@@ -104,20 +107,25 @@ Format:
       })
 
       try {
-        const nutritionPlan = JSON.parse(text)
-        setDailyTargets(nutritionPlan.targets)
-        setDailyMeals(nutritionPlan.meals.map((meal: any, index: number) => ({
-          id: `meal-${index}`,
-          ...meal
-        })))
+        // Extract JSON from response (in case there's extra text)
+        const jsonMatch = text.match(/\{[\s\S]*\}/)
+        if (jsonMatch) {
+          const nutritionPlan = JSON.parse(jsonMatch[0])
+          if (nutritionPlan.targets && nutritionPlan.meals) {
+            setDailyTargets(nutritionPlan.targets)
+            setDailyMeals(nutritionPlan.meals.map((meal: any, index: number) => ({
+              id: `meal-${index}`,
+              ...meal
+            })))
+          }
+        }
       } catch (parseError) {
         console.error('Error parsing nutrition plan:', parseError)
-        // Fallback to default plan
-        generateDefaultPlan()
+        // Keep default plan that was already set
       }
     } catch (error) {
       console.error('Error generating nutrition plan:', error)
-      generateDefaultPlan()
+      // Keep default plan that was already set
     } finally {
       setIsGenerating(false)
     }
@@ -191,10 +199,48 @@ Format:
 
   const generateSupplementRecommendations = useCallback(async () => {
     try {
+      // Set default supplements first
+      const defaultSupplements = [
+        {
+          id: 'vitamin-d',
+          name: 'Vitamin D3',
+          dosage: '2000 IU',
+          timing: 'With breakfast',
+          purpose: 'Bone health and immune function',
+          active: true
+        },
+        {
+          id: 'omega-3',
+          name: 'Omega-3 Fish Oil',
+          dosage: '1000mg EPA/DHA',
+          timing: 'With dinner',
+          purpose: 'Reduce inflammation and support recovery',
+          active: true
+        },
+        {
+          id: 'magnesium',
+          name: 'Magnesium Glycinate',
+          dosage: '400mg',
+          timing: 'Before bed',
+          purpose: 'Muscle recovery and sleep quality',
+          active: true
+        },
+        {
+          id: 'iron',
+          name: 'Iron Bisglycinate',
+          dosage: '18mg',
+          timing: 'On empty stomach',
+          purpose: 'Support oxygen transport and prevent fatigue',
+          active: true
+        }
+      ]
+      
+      setSupplements(defaultSupplements)
+
       const prompt = `Recommend evidence-based supplements for a half-marathon runner.
 
 Runner Profile:
-- Goal: ${consultationData.goal_type}
+- Goal: ${consultationData.goal_type || 'Complete half-marathon'}
 - Training intensity: Week ${currentWeek} of 20
 - Dietary restrictions: ${consultationData.dietary_restrictions || 'None'}
 
@@ -218,48 +264,34 @@ Provide 4-6 supplement recommendations in JSON format:
       })
 
       try {
-        const supplementPlan = JSON.parse(text)
-        setSupplements(supplementPlan.supplements.map((supp: any, index: number) => ({
-          id: `supp-${index}`,
-          ...supp
-        })))
-      } catch (parseError) {
-        // Fallback supplements
-        setSupplements([
-          {
-            id: 'vitamin-d',
-            name: 'Vitamin D3',
-            dosage: '2000 IU',
-            timing: 'With breakfast',
-            purpose: 'Bone health and immune function',
-            active: true
-          },
-          {
-            id: 'omega-3',
-            name: 'Omega-3 Fish Oil',
-            dosage: '1000mg EPA/DHA',
-            timing: 'With dinner',
-            purpose: 'Reduce inflammation and support recovery',
-            active: true
-          },
-          {
-            id: 'magnesium',
-            name: 'Magnesium Glycinate',
-            dosage: '400mg',
-            timing: 'Before bed',
-            purpose: 'Muscle recovery and sleep quality',
-            active: true
+        // Extract JSON from response
+        const jsonMatch = text.match(/\{[\s\S]*\}/)
+        if (jsonMatch) {
+          const supplementPlan = JSON.parse(jsonMatch[0])
+          if (supplementPlan.supplements && Array.isArray(supplementPlan.supplements)) {
+            setSupplements(supplementPlan.supplements.map((supp: any, index: number) => ({
+              id: `supp-${index}`,
+              ...supp
+            })))
           }
-        ])
+        }
+      } catch (parseError) {
+        console.error('Error parsing supplement plan:', parseError)
+        // Keep default supplements that were already set
       }
     } catch (error) {
       console.error('Error generating supplement recommendations:', error)
+      // Keep default supplements
     }
   }, [consultationData, currentWeek])
 
   useEffect(() => {
-    generatePersonalizedPlan()
-    generateSupplementRecommendations()
+    // Ensure we have default data first
+    generateDefaultPlan()
+    
+    // Then try to generate personalized plans
+    generatePersonalizedPlan().catch(console.error)
+    generateSupplementRecommendations().catch(console.error)
   }, [generatePersonalizedPlan, generateSupplementRecommendations])
 
   useEffect(() => {
@@ -310,6 +342,20 @@ Provide 4-6 supplement recommendations in JSON format:
       default:
         return 'bg-gray-100 text-gray-800'
     }
+  }
+
+  if (isGenerating && dailyMeals.length === 0) {
+    return (
+      <div className="max-w-6xl mx-auto p-6 space-y-6">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+            <h2 className="text-xl font-semibold text-slate-900 mb-2">Generating Your Nutrition Plan</h2>
+            <p className="text-slate-600">Creating personalized meal recommendations based on your training profile...</p>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
