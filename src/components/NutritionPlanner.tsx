@@ -63,24 +63,6 @@ export function NutritionPlanner({ consultationData, currentWeek }: NutritionPla
   })
   const [isGenerating, setIsGenerating] = useState(false)
 
-  useEffect(() => {
-    generatePersonalizedPlan()
-    generateSupplementRecommendations()
-  }, [consultationData, currentWeek, generatePersonalizedPlan, generateSupplementRecommendations])
-
-  useEffect(() => {
-    // Calculate current intake from meals
-    const intake = dailyMeals.reduce((acc, meal) => ({
-      calories: acc.calories + meal.calories,
-      carbs: acc.carbs + meal.carbs,
-      protein: acc.protein + meal.protein,
-      fat: acc.fat + meal.fat,
-      water: acc.water
-    }), { calories: 0, carbs: 0, protein: 0, fat: 0, water: 0 })
-    
-    setCurrentIntake(intake)
-  }, [dailyMeals])
-
   const generatePersonalizedPlan = useCallback(async () => {
     setIsGenerating(true)
     
@@ -274,6 +256,24 @@ Provide 4-6 supplement recommendations in JSON format:
       console.error('Error generating supplement recommendations:', error)
     }
   }, [consultationData, currentWeek])
+
+  useEffect(() => {
+    generatePersonalizedPlan()
+    generateSupplementRecommendations()
+  }, [generatePersonalizedPlan, generateSupplementRecommendations])
+
+  useEffect(() => {
+    // Calculate current intake from meals
+    const intake = dailyMeals.reduce((acc, meal) => ({
+      calories: acc.calories + meal.calories,
+      carbs: acc.carbs + meal.carbs,
+      protein: acc.protein + meal.protein,
+      fat: acc.fat + meal.fat,
+      water: acc.water
+    }), { calories: 0, carbs: 0, protein: 0, fat: 0, water: 0 })
+    
+    setCurrentIntake(intake)
+  }, [dailyMeals])
 
   const getMealIcon = (mealType: string) => {
     switch (mealType) {

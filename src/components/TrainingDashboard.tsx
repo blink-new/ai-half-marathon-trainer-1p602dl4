@@ -3,8 +3,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
-import { Calendar, Clock, Target, TrendingUp, MapPin, Dumbbell, Apple } from 'lucide-react'
+import { Calendar, Clock, Target, TrendingUp, MapPin, Dumbbell, Apple, AlertTriangle, CheckCircle } from 'lucide-react'
 import type { ConsultationData, WorkoutPlan } from '@/types/training'
+import { TrainingAlgorithm, type WorkoutFeedback } from '@/components/TrainingAlgorithm'
 
 interface TrainingDashboardProps {
   consultationData: ConsultationData
@@ -22,6 +23,13 @@ export function TrainingDashboard({
   onWeekChange 
 }: TrainingDashboardProps) {
   const [weeklyPlan, setWeeklyPlan] = useState<WorkoutPlan[]>([])
+  const [trainingAlgorithm, setTrainingAlgorithm] = useState<TrainingAlgorithm | null>(null)
+  const [trainingInsights, setTrainingInsights] = useState({
+    adaptationStatus: 'Maintaining',
+    injuryRiskLevel: 'Low',
+    fitnessProgress: 'Steady',
+    recommendations: [] as string[]
+  })
   const [stats, setStats] = useState({
     totalWeeks: 20,
     completedWorkouts: 0,
@@ -29,97 +37,76 @@ export function TrainingDashboard({
     weeklyProgress: 0
   })
 
-  const generateWeeklyPlan = useCallback(() => {
-    // Generate a sample weekly plan based on consultation data
-    const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-    const trainingDays = consultationData.training_days_per_week || 4
+  // Initialize training algorithm
+  useEffect(() => {
+    const algorithm = new TrainingAlgorithm(consultationData, currentWeek)
+    setTrainingAlgorithm(algorithm)
     
-    const workouts: WorkoutPlan[] = daysOfWeek.map((day, index) => {
-      const date = new Date()
-      date.setDate(date.getDate() + index)
-      
-      // Determine workout type based on training schedule
-      let workoutType: WorkoutPlan['workout_type'] = 'rest'
-      let distance = 0
-      let duration = 0
-      let intensity: 'low' | 'moderate' | 'high' = 'low'
-      let description = 'Rest day - focus on recovery'
-
-      if (index < trainingDays) {
-        switch (index) {
-          case 0: // Monday - Easy run
-            workoutType = 'easy_run'
-            distance = 3 + (currentWeek * 0.2)
-            duration = 25 + (currentWeek * 2)
-            intensity = 'low'
-            description = 'Easy conversational pace run to build aerobic base'
-            break
-          case 1: // Tuesday - Strength or intervals
-            if (consultationData.gym_access) {
-              workoutType = 'strength'
-              duration = 45
-              intensity = 'moderate'
-              description = 'Runner-specific strength training: core, glutes, and leg power'
-            } else {
-              workoutType = 'intervals'
-              distance = 4
-              duration = 35
-              intensity = 'high'
-              description = '4x800m intervals at 5K pace with 2min recovery'
-            }
-            break
-          case 2: // Wednesday - Easy run or recovery
-            workoutType = index % 2 === 0 ? 'easy_run' : 'recovery'
-            distance = 3
-            duration = 25
-            intensity = 'low'
-            description = 'Recovery run or active recovery with stretching'
-            break
-          case 3: // Thursday - Tempo run
-            workoutType = 'tempo_run'
-            distance = 5 + (currentWeek * 0.3)
-            duration = 35 + (currentWeek * 3)
-            intensity = 'moderate'
-            description = 'Tempo run at half-marathon pace effort'
-            break
-          case 4: // Friday - Easy run
-            workoutType = 'easy_run'
-            distance = 3
-            duration = 25
-            intensity = 'low'
-            description = 'Easy shakeout run before long run'
-            break
-          case 5: // Saturday - Long run
-            workoutType = 'long_run'
-            distance = 6 + (currentWeek * 0.5)
-            duration = 50 + (currentWeek * 5)
-            intensity = 'moderate'
-            description = 'Long steady run to build endurance'
-            break
-        }
+    // Load any existing feedback from localStorage
+    const savedFeedback = localStorage.getItem('trainingFeedback')
+    if (savedFeedback) {
+      try {
+        const feedback: WorkoutFeedback[] = JSON.parse(savedFeedback)
+        feedback.forEach(f => algorithm.addWorkoutFeedback(f))
+      } catch (error) {
+        console.error('Error loading saved feedback:', error)
       }
+    }
+    
+    setTrainingInsights(algorithm.getTrainingInsights())
+  }, [consultationData, currentWeek])
 
-      return {
-        id: `week${currentWeek}-day${index}`,
-        user_id: 'user',
-        week_number: currentWeek,
-        date: date.toISOString().split('T')[0],
-        workout_type: workoutType,
-        distance,
-        duration,
-        intensity,
-        description,
-        completed: false,
-        created_at: new Date().toISOString()
-      }
-    })
-
+  const generateWeeklyPlan = useCallback(() => {
+    if (!trainingAlgorithm) return
+    
+    const workouts = trainingAlgorithm.generateWeeklyPlan(currentWeek)
     setWeeklyPlan(workouts)
-  }, [currentWeek, consultationData])
+    
+    // Update insights after generating plan
+    setTrainingInsights(trainingAlgorithm.getTrainingInsights())
+    
+    // Calculate stats
+    const completedCount = workouts.filter(w => w.completed).length
+    const totalDistance = workouts.reduce((sum, w) => sum + (w.distance || 0), 0)
+    const trainingWorkouts = workouts.filter(w => w.workout_type !== 'rest').length
+    const weeklyProgress = trainingWorkouts > 0 ? (completedCount / trainingWorkouts) * 100 : 0
+    
+    setStats(prev => ({
+      ...prev,
+      completedWorkouts: completedCount,
+      totalDistance,
+      weeklyProgress
+    }))
+  }, [currentWeek, trainingAlgorithm])
 
   useEffect(() => {
     generateWeeklyPlan()
   }, [generateWeeklyPlan])
+
+  // Function to simulate workout feedback (for testing)
+  const addSampleFeedback = (workoutId: string) => {
+    if (!trainingAlgorithm) return
+    
+    const sampleFeedback: WorkoutFeedback = {
+      workoutId,
+      rating: Math.floor(Math.random() * 3) + 3, // 3-5 rating
+      effortLevel: Math.floor(Math.random() * 4) + 5, // 5-8 effort
+      energyLevel: Math.floor(Math.random() * 4) + 6, // 6-9 energy
+      mood: ['good', 'great', 'okay'][Math.floor(Math.random() * 3)],
+      feedbackText: 'Felt good during this workout',
+      timestamp: new Date().toISOString()
+    }
+    
+    trainingAlgorithm.addWorkoutFeedback(sampleFeedback)
+    
+    // Save to localStorage
+    const existingFeedback = JSON.parse(localStorage.getItem('trainingFeedback') || '[]')
+    existingFeedback.push(sampleFeedback)
+    localStorage.setItem('trainingFeedback', JSON.stringify(existingFeedback))
+    
+    // Regenerate plan with new feedback
+    generateWeeklyPlan()
+  }
 
   const getWorkoutIcon = (type: WorkoutPlan['workout_type']) => {
     switch (type) {
@@ -191,6 +178,77 @@ export function TrainingDashboard({
       </div>
 
       <div className="max-w-6xl mx-auto p-6">
+        {/* Training Insights */}
+        <div className="mb-8">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <TrendingUp className="w-5 h-5 text-blue-600" />
+                AI Training Insights
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-4">
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 rounded-lg ${
+                    trainingInsights.adaptationStatus === 'Progressing well' ? 'bg-green-100' :
+                    trainingInsights.adaptationStatus === 'Need recovery' ? 'bg-red-100' : 'bg-blue-100'
+                  }`}>
+                    <CheckCircle className={`w-4 h-4 ${
+                      trainingInsights.adaptationStatus === 'Progressing well' ? 'text-green-600' :
+                      trainingInsights.adaptationStatus === 'Need recovery' ? 'text-red-600' : 'text-blue-600'
+                    }`} />
+                  </div>
+                  <div>
+                    <div className="font-medium text-slate-900">{trainingInsights.adaptationStatus}</div>
+                    <div className="text-sm text-slate-600">Adaptation Status</div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 rounded-lg ${
+                    trainingInsights.injuryRiskLevel === 'Low' ? 'bg-green-100' :
+                    trainingInsights.injuryRiskLevel === 'High' ? 'bg-red-100' : 'bg-yellow-100'
+                  }`}>
+                    <AlertTriangle className={`w-4 h-4 ${
+                      trainingInsights.injuryRiskLevel === 'Low' ? 'text-green-600' :
+                      trainingInsights.injuryRiskLevel === 'High' ? 'text-red-600' : 'text-yellow-600'
+                    }`} />
+                  </div>
+                  <div>
+                    <div className="font-medium text-slate-900">{trainingInsights.injuryRiskLevel} Risk</div>
+                    <div className="text-sm text-slate-600">Injury Risk</div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-purple-100 rounded-lg">
+                    <Target className="w-4 h-4 text-purple-600" />
+                  </div>
+                  <div>
+                    <div className="font-medium text-slate-900">{trainingInsights.fitnessProgress}</div>
+                    <div className="text-sm text-slate-600">Fitness Progress</div>
+                  </div>
+                </div>
+              </div>
+
+              {trainingInsights.recommendations.length > 0 && (
+                <div className="border-t pt-4">
+                  <h4 className="font-medium text-slate-900 mb-2">AI Recommendations:</h4>
+                  <ul className="space-y-1">
+                    {trainingInsights.recommendations.map((rec, index) => (
+                      <li key={index} className="text-sm text-slate-700 flex items-start gap-2">
+                        <div className="w-1.5 h-1.5 bg-blue-600 rounded-full mt-2 flex-shrink-0"></div>
+                        {rec}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
         {/* Stats Overview */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <Card>
@@ -317,14 +375,26 @@ export function TrainingDashboard({
                   )}
 
                   {workout.workout_type !== 'rest' && (
-                    <Button
-                      size="sm"
-                      className="w-full"
-                      onClick={() => onStartWorkout(workout)}
-                      disabled={workout.completed}
-                    >
-                      {workout.completed ? 'Completed' : 'Start Workout'}
-                    </Button>
+                    <div className="space-y-2">
+                      <Button
+                        size="sm"
+                        className="w-full"
+                        onClick={() => onStartWorkout(workout)}
+                        disabled={workout.completed}
+                      >
+                        {workout.completed ? 'Completed' : 'Start Workout'}
+                      </Button>
+                      
+                      {/* Testing button for feedback simulation */}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full text-xs"
+                        onClick={() => addSampleFeedback(workout.id)}
+                      >
+                        Add Sample Feedback
+                      </Button>
+                    </div>
                   )}
                 </div>
               </CardContent>
